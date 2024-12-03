@@ -195,11 +195,17 @@ async def handle_media_stream(websocket: WebSocket):
     print("Client connected")
     await websocket.accept()
 
+    # Initialize variables
+    stream_sid = None
+    latest_media_timestamp = 0
+
+    # Set up OpenAI Realtime client
     client = RealtimeClient(api_key=OPENAI_API_KEY)
     await client.connect()
 
     async def receive_from_twilio():
         """Receive audio data from Twilio and send it to the OpenAI Realtime API."""
+        nonlocal stream_sid, latest_media_timestamp
         try:
             async for message in websocket.iter_text():
                 data = json.loads(message)
@@ -211,13 +217,43 @@ async def handle_media_stream(websocket: WebSocket):
                     }
                     await client.ws.send(json.dumps(audio_append))
                 elif data['event'] == 'start':
-                    print(f"Incoming stream has started {data['start']['streamSid']}")
+                    stream_sid = data['start']['streamSid']
+                    print(f"Incoming stream has started {stream_sid}")
         except WebSocketDisconnect:
             print("Client disconnected.")
             await client.close()
 
     async def send_to_twilio():
-        await client.handle_messages()
+        """Receive events from the OpenAI Realtime API and handle audio responses."""
+        nonlocal stream_sid
+        try:
+            async for openai_message in client.ws:
+                response = json.loads(openai_message)
+
+                # Log received event
+                if response.get("type"):
+                    print(f"Received event: {response['type']}", response)
+
+                # Process audio responses
+                if response.get("type") == "response.audio.delta" and "delta" in response:
+                    # Decode and prepare the audio payload
+                    audio_payload = base64.b64encode(
+                        base64.b64decode(response["delta"])
+                    ).decode("utf-8")
+                    audio_delta = {
+                        "event": "media",
+                        "streamSid": stream_sid,
+                        "media": {"payload": audio_payload},
+                    }
+                    # Send the audio payload back to Twilio
+                    await websocket.send_json(audio_delta)
+
+                # Handle other response types as needed
+                if response.get("type") == "response.done":
+                    print(f"Response completed: {response}")
+
+        except Exception as e:
+            print(f"Error in send_to_twilio: {e}")
 
     await asyncio.gather(receive_from_twilio(), send_to_twilio())
 
