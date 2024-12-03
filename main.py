@@ -85,6 +85,7 @@ class RealtimeClient:
         """Control initial session with OpenAI and register tools."""
         tools = [
             {
+                "type": "function",
                 "name": "handoff_to_agent",
                 "description": "Request human intervention.",
                 "parameters": {
@@ -99,6 +100,7 @@ class RealtimeClient:
                 }
             },
             {
+                "type": "function",
                 "name": "get_weather",
                 "description": "Retrieves weather info for a given lat/lng.",
                 "parameters": {
