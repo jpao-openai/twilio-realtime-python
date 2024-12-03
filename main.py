@@ -231,23 +231,6 @@ async def fetch_weather(lat, lng, location):
 
 async def initialize_session(openai_ws):
     """Control initial session with OpenAI and register tools."""
-    session_update = {
-        "type": "session.update",
-        "session": {
-            "turn_detection": {"type": "server_vad"},
-            "input_audio_format": "g711_ulaw",
-            "output_audio_format": "g711_ulaw",
-            "voice": VOICE,
-            "instructions": SYSTEM_MESSAGE,
-            "modalities": ["text", "audio"],
-            "temperature": 0.8,
-            "tools": tools,
-            "tool_choice": "auto",
-        }
-    }
-    print('Sending session update:', json.dumps(session_update))
-    await openai_ws.send(json.dumps(session_update))
-
     # Define tools
     tools = [
         {
@@ -299,6 +282,23 @@ async def initialize_session(openai_ws):
             }
         }
     ]
+
+    session_update = {
+        "type": "session.update",
+        "session": {
+            "turn_detection": {"type": "server_vad"},
+            "input_audio_format": "g711_ulaw",
+            "output_audio_format": "g711_ulaw",
+            "voice": VOICE,
+            "instructions": SYSTEM_MESSAGE,
+            "modalities": ["text", "audio"],
+            "temperature": 0.8,
+            "tools": tools,
+            "tool_choice": "auto",
+        }
+    }
+    print('Sending session update:', json.dumps(session_update))
+    await openai_ws.send(json.dumps(session_update))
 
     for tool in tools:
         await openai_ws.send(json.dumps(tool))
