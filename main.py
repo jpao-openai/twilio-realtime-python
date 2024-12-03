@@ -11,7 +11,6 @@ from twilio.twiml.voice_response import VoiceResponse, Connect
 from dotenv import load_dotenv
 from enum import Enum
 from typing import Optional, Callable, List, Dict, Any
-from pydub import AudioSegment
 
 load_dotenv()
 
