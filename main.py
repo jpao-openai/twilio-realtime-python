@@ -29,7 +29,6 @@ LOG_EVENT_TYPES = [
     'input_audio_buffer.speech_stopped', 'input_audio_buffer.speech_started',
     'session.created'
 ]
-SHOW_TIMING_MATH = False
 
 # In-memory storage for set_memory tool
 memory_storage = {}
@@ -66,7 +65,6 @@ class RealtimeClient:
         self.temperature = temperature
         self.base_url = "wss://api.openai.com/v1/realtime"
         self.turn_detection_mode = turn_detection_mode
-        # Track current response state
         self._current_response_id = None
         self._current_item_id = None
         self._is_responding = False
@@ -132,21 +130,43 @@ class RealtimeClient:
         print('Sending session update:', json.dumps(session_update))
         await self.ws.send(json.dumps(session_update))
 
-    async def send_text(self, text: str) -> None:
-        """Send text message to the API."""
-        event = {
-            "type": "conversation.item.create",
-            "item": {
-                "type": "message",
-                "role": "user",
-                "content": [{
-                    "type": "input_text",
-                    "text": text
-                }]
-            }
-        }
-        await self.ws.send(json.dumps(event))
-        await self.create_response()
+    async def get_weather(self, parameters: Dict[str, Any]) -> Dict[str, Any]:
+        """Fetch weather information."""
+        lat = parameters.get("lat")
+        lng = parameters.get("lng")
+        location = parameters.get("location", "the specified location")
+
+        if lat is None or lng is None:
+            return {"error": "Latitude and longitude are required."}
+
+        try:
+            url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lng}&current_weather=true"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        weather = data.get("current_weather", {})
+                        return {
+                            "temperature": weather.get("temperature"),
+                            "wind_speed": weather.get("windspeed"),
+                            "units": {
+                                "temperature": "°C",
+                                "wind_speed": "m/s"
+                            }
+                        }
+                    else:
+                        return {"error": f"Failed to fetch weather (HTTP {response.status})."}
+        except Exception as e:
+            return {"error": str(e)}
+
+# i dont think this works 'type': 'function_call' 'name': 'get_weather'
+# add cursor documentation -> realtime docs
+    async def handle_function_call(self, function_name: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
+        if function_name == "get_weather":
+            return await self.get_weather(parameters)
+        else:
+            print(f"Unknown function: {function_name}")
+            return {}
 
     async def handle_messages(self) -> None:
         try:
@@ -155,108 +175,33 @@ class RealtimeClient:
                 event_type = event.get("type")
                 if event_type in LOG_EVENT_TYPES:
                     print(f"Received event: {event_type}", event)
-                if event_type == "response.text.delta" and self.on_text_delta:
-                    self.on_text_delta(event["delta"])
-                elif event_type == "response.audio.delta" and self.on_audio_delta:
-                    audio_bytes = base64.b64decode(event["delta"])
-                    self.on_audio_delta(audio_bytes)
+
+                if event_type == "response.done":
+                    # Parse the output to find the function call
+                    output = event.get("response", {}).get("output", [])
+                    for item in output:
+                        if item.get("type") == "function_call":
+                            function_name = item.get("name")
+                            call_arguments = json.loads(item.get("arguments", "{}"))
+                            result = await self.handle_function_call(function_name, call_arguments)
+
+                            # Send the function response back to the WebSocket
+                            response = {
+                                "type": "function.response",
+                                "name": function_name,
+                                "result": result
+                            }
+                            await self.ws.send(json.dumps(response))
         except websockets.exceptions.ConnectionClosed:
             print("Connection closed")
         except Exception as e:
-            print(f"Error in message handling: {str(e)}")
-
-    async def close(self) -> None:
-        """Close the WebSocket connection."""
-        if self.ws:
-            await self.ws.close()
+            print(f"Error: {str(e)}")
 
 app = FastAPI()
 
-if not OPENAI_API_KEY:
-    raise ValueError('Missing the OpenAI API key. Please set it in the .env file.')
-
-@app.get("/", response_class=JSONResponse)
-async def index_page():
-    return {"message": "Twilio Media Stream Server is running!"}
-
-@app.api_route("/incoming-call", methods=["GET", "POST"])
-async def handle_incoming_call(request: Request):
-    """Handle incoming call and return TwiML response to connect to Media Stream."""
-    response = VoiceResponse()
-    host = request.url.hostname
-    connect = Connect()
-    connect.stream(url=f'wss://{host}/media-stream')
-    response.append(connect)
-    return HTMLResponse(content=str(response), media_type="application/xml")
-
 @app.websocket("/media-stream")
 async def handle_media_stream(websocket: WebSocket):
-    """Handle WebSocket connections between Twilio and OpenAI."""
-    print("Client connected")
     await websocket.accept()
-
-    # Initialize variables
-    stream_sid = None
-    latest_media_timestamp = 0
-
-    # Set up OpenAI Realtime client
     client = RealtimeClient(api_key=OPENAI_API_KEY)
     await client.connect()
-
-    async def receive_from_twilio():
-        """Receive audio data from Twilio and send it to the OpenAI Realtime API."""
-        nonlocal stream_sid, latest_media_timestamp
-        try:
-            async for message in websocket.iter_text():
-                data = json.loads(message)
-                if data['event'] == 'media' and client.ws.open:
-                    latest_media_timestamp = int(data['media']['timestamp'])
-                    audio_append = {
-                        "type": "input_audio_buffer.append",
-                        "audio": data['media']['payload']
-                    }
-                    await client.ws.send(json.dumps(audio_append))
-                elif data['event'] == 'start':
-                    stream_sid = data['start']['streamSid']
-                    print(f"Incoming stream has started {stream_sid}")
-        except WebSocketDisconnect:
-            print("Client disconnected.")
-            await client.close()
-
-    async def send_to_twilio():
-        """Receive events from the OpenAI Realtime API and handle audio responses."""
-        nonlocal stream_sid
-        try:
-            async for openai_message in client.ws:
-                response = json.loads(openai_message)
-
-                # Log received event
-                if response.get("type"):
-                    print(f"Received event: {response['type']}", response)
-
-                # Process audio responses
-                if response.get("type") == "response.audio.delta" and "delta" in response:
-                    # Decode and prepare the audio payload
-                    audio_payload = base64.b64encode(
-                        base64.b64decode(response["delta"])
-                    ).decode("utf-8")
-                    audio_delta = {
-                        "event": "media",
-                        "streamSid": stream_sid,
-                        "media": {"payload": audio_payload},
-                    }
-                    # Send the audio payload back to Twilio
-                    await websocket.send_json(audio_delta)
-
-                # Handle other response types as needed
-                if response.get("type") == "response.done":
-                    print(f"Response completed: {response}")
-
-        except Exception as e:
-            print(f"Error in send_to_twilio: {e}")
-
-    await asyncio.gather(receive_from_twilio(), send_to_twilio())
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
+    await asyncio.gather(client.handle_messages())
