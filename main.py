@@ -85,26 +85,6 @@ class RealtimeClient:
         """Control initial session with OpenAI and register tools."""
         tools = [
             {
-                "type": "tool",
-                "name": "set_memory",
-                "description": "Saves important data about the user into memory.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "key": {
-                            "type": "string",
-                            "description": "The key of the memory value."
-                        },
-                        "value": {
-                            "type": "string",
-                            "description": "The value to store."
-                        }
-                    },
-                    "required": ["key", "value"]
-                }
-            },
-            {
-                "type": "tool",
                 "name": "handoff_to_agent",
                 "description": "Request human intervention.",
                 "parameters": {
@@ -119,7 +99,6 @@ class RealtimeClient:
                 }
             },
             {
-                "type": "tool",
                 "name": "get_weather",
                 "description": "Retrieves weather info for a given lat/lng.",
                 "parameters": {
