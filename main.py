@@ -46,7 +46,7 @@ class RealtimeClient:
         voice: str = "alloy",
         instructions: str = "You are a helpful assistant",
         temperature: float = 0.8,
-        turn_detection_mode: TurnDetectionMode = TurnDetectionMode.MANUAL,
+        turn_detection_mode: TurnDetectionMode = TurnDetectionMode.SERVER_VAD,
         on_text_delta: Optional[Callable[[str], None]] = None,
         on_audio_delta: Optional[Callable[[bytes], None]] = None,
         on_interrupt: Optional[Callable[[], None]] = None,
