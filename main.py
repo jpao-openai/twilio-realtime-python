@@ -45,10 +45,6 @@ async def index_page():
 async def handle_incoming_call(request: Request):
     """Handle incoming call and return TwiML response to connect to Media Stream."""
     response = VoiceResponse()
-    # <Say> punctuation to improve text-to-speech flow
-    # response.say("Please wait while we connect your call to the voice assistant, powered by Twilio and the Open-A.I. Realtime API")
-    # response.pause(length=1)
-    # response.say("O.K. you can start talking!")
     host = request.url.hostname
     connect = Connect()
     connect.stream(url=f'wss://{host}/media-stream')
@@ -245,6 +241,8 @@ async def initialize_session(openai_ws):
             "instructions": SYSTEM_MESSAGE,
             "modalities": ["text", "audio"],
             "temperature": 0.8,
+            "tools": tools,
+            "tool_choice": "auto",
         }
     }
     print('Sending session update:', json.dumps(session_update))
