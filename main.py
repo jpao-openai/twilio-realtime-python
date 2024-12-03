@@ -3,6 +3,7 @@ import json
 import base64
 import asyncio
 import websockets
+import aiohttp
 from fastapi import FastAPI, WebSocket, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.websockets import WebSocketDisconnect
@@ -28,6 +29,9 @@ LOG_EVENT_TYPES = [
 ]
 SHOW_TIMING_MATH = False
 
+# In-memory storage for set_memory tool
+memory_storage = {}
+
 app = FastAPI()
 
 if not OPENAI_API_KEY:
@@ -42,7 +46,7 @@ async def handle_incoming_call(request: Request):
     """Handle incoming call and return TwiML response to connect to Media Stream."""
     response = VoiceResponse()
     # <Say> punctuation to improve text-to-speech flow
-    response.say("Please wait while we connect your call to the A. I. voice assistant, powered by Twilio and the Open-A.I. Realtime API")
+    # response.say("Please wait while we connect your call to the voice assistant, powered by Twilio and the Open-A.I. Realtime API")
     # response.pause(length=1)
     # response.say("O.K. you can start talking!")
     host = request.url.hostname
@@ -101,44 +105,57 @@ async def handle_media_stream(websocket: WebSocket):
                     await openai_ws.close()
 
         async def send_to_twilio():
-            """Receive events from the OpenAI Realtime API, send audio back to Twilio."""
-            nonlocal stream_sid, last_assistant_item, response_start_timestamp_twilio
+            """Receive events from OpenAI Realtime API and handle tool calls."""
             try:
                 async for openai_message in openai_ws:
                     response = json.loads(openai_message)
                     if response['type'] in LOG_EVENT_TYPES:
                         print(f"Received event: {response['type']}", response)
 
+                    # Handle tools
+                    if response.get('type') == 'tool_call':
+                        tool_name = response['tool']['name']
+                        parameters = response['tool']['parameters']
+
+                        if tool_name == 'set_memory':
+                            key = parameters['key']
+                            value = parameters['value']
+                            # Simulate memory storage
+                            memory_storage[key] = value
+                            result = {"ok": True}
+
+                        elif tool_name == 'handoff_to_agent':
+                            reason = parameters['reason_for_handoff']
+                            result = {"handed_off_to_agent": True}
+
+                        elif tool_name == 'get_weather':
+                            lat, lng, location = parameters['lat'], parameters['lng'], parameters['location']
+                            result = await fetch_weather(lat, lng, location)
+
+                        else:
+                            result = {"error": "Unknown tool"}
+
+                        # Send the tool's result back
+                        tool_result_event = {
+                            "type": "tool_result",
+                            "tool": {"name": tool_name},
+                            "result": result
+                        }
+                        await openai_ws.send(json.dumps(tool_result_event))
+
+                    # Handle other OpenAI events (audio responses, etc.)
                     if response.get('type') == 'response.audio.delta' and 'delta' in response:
                         audio_payload = base64.b64encode(base64.b64decode(response['delta'])).decode('utf-8')
                         audio_delta = {
                             "event": "media",
                             "streamSid": stream_sid,
-                            "media": {
-                                "payload": audio_payload
-                            }
+                            "media": {"payload": audio_payload}
                         }
                         await websocket.send_json(audio_delta)
 
-                        if response_start_timestamp_twilio is None:
-                            response_start_timestamp_twilio = latest_media_timestamp
-                            if SHOW_TIMING_MATH:
-                                print(f"Setting start timestamp for new response: {response_start_timestamp_twilio}ms")
-
-                        # Update last_assistant_item safely
-                        if response.get('item_id'):
-                            last_assistant_item = response['item_id']
-
-                        await send_mark(websocket, stream_sid)
-
-                    # Trigger an interruption. Your use case might work better using `input_audio_buffer.speech_stopped`, or combining the two.
-                    if response.get('type') == 'input_audio_buffer.speech_started':
-                        print("Speech started detected.")
-                        if last_assistant_item:
-                            print(f"Interrupting response with id: {last_assistant_item}")
-                            await handle_speech_started_event()
             except Exception as e:
                 print(f"Error in send_to_twilio: {e}")
+
 
         async def handle_speech_started_event():
             """Handle interruption when the caller's speech starts."""
@@ -201,8 +218,23 @@ async def send_initial_conversation_item(openai_ws):
     await openai_ws.send(json.dumps({"type": "response.create"}))
 
 
+async def fetch_weather(lat, lng, location):
+    """Fetch weather data from an external API."""
+    url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lng}&current_weather=true"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as response:
+            if response.status == 200:
+                data = await response.json()
+                return {
+                    "location": location,
+                    "temperature": data["current_weather"]["temperature"],
+                    "wind_speed": data["current_weather"]["windspeed"]
+                }
+            else:
+                return {"error": "Failed to fetch weather data"}
+
 async def initialize_session(openai_ws):
-    """Control initial session with OpenAI."""
+    """Control initial session with OpenAI and register tools."""
     session_update = {
         "type": "session.update",
         "session": {
@@ -217,6 +249,61 @@ async def initialize_session(openai_ws):
     }
     print('Sending session update:', json.dumps(session_update))
     await openai_ws.send(json.dumps(session_update))
+
+    # Define tools
+    tools = [
+        {
+            "type": "tool",
+            "name": "set_memory",
+            "description": "Saves important data about the user into memory.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "key": {
+                        "type": "string",
+                        "description": "The key of the memory value."
+                    },
+                    "value": {
+                        "type": "string",
+                        "description": "The value to store."
+                    }
+                },
+                "required": ["key", "value"]
+            }
+        },
+        {
+            "type": "tool",
+            "name": "handoff_to_agent",
+            "description": "Request human intervention.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "reason_for_handoff": {
+                        "type": "string",
+                        "description": "Reason for requesting an agent."
+                    }
+                },
+                "required": ["reason_for_handoff"]
+            }
+        },
+        {
+            "type": "tool",
+            "name": "get_weather",
+            "description": "Retrieves weather info for a given lat/lng.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "lat": {"type": "number", "description": "Latitude."},
+                    "lng": {"type": "number", "description": "Longitude."},
+                    "location": {"type": "string", "description": "Location name."}
+                },
+                "required": ["lat", "lng", "location"]
+            }
+        }
+    ]
+
+    for tool in tools:
+        await openai_ws.send(json.dumps(tool))
 
     # Uncomment the next line to have the AI speak first
     # await send_initial_conversation_item(openai_ws)
