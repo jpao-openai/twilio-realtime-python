@@ -81,9 +81,24 @@ class RealtimeClient:
         self.ws = await websockets.connect(url, extra_headers=headers)
         await self.initialize_session()
 
+    async def initialize_session(self):
+        """Control initial session with OpenAI."""
+        session_update = {
+            "type": "session.update",
+            "session": {
+                "turn_detection": {"type": "server_vad"},
+                "input_audio_format": "g711_ulaw",
+                "output_audio_format": "g711_ulaw",
+                "voice": VOICE,
+                "instructions": SYSTEM_MESSAGE,
+                "modalities": ["text", "audio"],
+                "temperature": 0.8,
+            }
+        }
+        print('Sending session update:', json.dumps(session_update))
+        await self.ws.send(json.dumps(session_update))
 
-    async def send_initial_conversation_item(self):
-        """Send initial conversation item if AI talks first."""
+        # Send initial conversation item if AI talks first
         initial_conversation_item = {
             "type": "conversation.item.create",
             "item": {
@@ -98,59 +113,6 @@ class RealtimeClient:
             }
         }
         await self.ws.send(json.dumps(initial_conversation_item))
-
-    async def initialize_session(self) -> None:
-        """Control initial session with OpenAI and register tools."""
-        tools = [
-            {
-                "type": "function",
-                "name": "handoff_to_agent",
-                "description": "Request human intervention.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "reason_for_handoff": {
-                            "type": "string",
-                            "description": "Reason for requesting an agent."
-                        }
-                    },
-                    "required": ["reason_for_handoff"]
-                }
-            },
-            {
-                "type": "function",
-                "name": "get_weather",
-                "description": "Retrieves weather info for a given lat/lng.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "lat": {"type": "number", "description": "Latitude."},
-                        "lng": {"type": "number", "description": "Longitude."},
-                        "location": {"type": "string", "description": "Location name."}
-                    },
-                    "required": ["lat", "lng", "location"]
-                }
-            }
-        ]
-
-        session_update = {
-            "type": "session.update",
-            "session": {
-                "turn_detection": {"type": self.turn_detection_mode.value},
-                "input_audio_format": "g711_ulaw",
-                "output_audio_format": "g711_ulaw",
-                "voice": self.voice,
-                "instructions": self.instructions,
-                "modalities": ["text", "audio"],
-                "temperature": self.temperature,
-                "tools": tools,
-                "tool_choice": "auto",
-            }
-        }
-        print('Sending session update:', json.dumps(session_update))
-        await self.ws.send(json.dumps(session_update))
-
-        await self.send_initial_conversation_item(self.ws)
 
     async def send_text(self, text: str) -> None:
         """Send text message to the API."""
