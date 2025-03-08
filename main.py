@@ -63,9 +63,9 @@ async def handle_media_stream(websocket: WebSocket):
 
     async with websockets.connect(
         websocket_server_url,
-        extra_headers={
-            "Authorization": f"Bearer {AUTH_TOKEN}"
-        }
+        # extra_headers={
+        #     "Authorization": f"Bearer {AUTH_TOKEN}"
+        # }
     ) as relay_ws:
         print("Connected to hosted WebSocket server")
         await initialize_session(relay_ws)  # Ensure session initialization
