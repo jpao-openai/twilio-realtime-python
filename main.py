@@ -20,6 +20,7 @@ load_dotenv()
 TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID')
 TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN')
 PHONE_NUMBER_FROM = os.getenv('PHONE_NUMBER_FROM')
+PHONE_NUMBER_TO= os.getenv('PHONE_NUMBER_TO')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 raw_domain = os.getenv('DOMAIN', '')
 DOMAIN = re.sub(r'(^\w+:|^)\/\/|\/+$', '', raw_domain) # Strip protocols and trailing slashes from DOMAIN
@@ -212,10 +213,10 @@ async def log_call_sid(call_sid):
     print(f"Call started with SID: {call_sid}")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run the Twilio AI voice assistant server.")
-    parser.add_argument('--call', required=True, help="The phone number to call, e.g. --call=+18005551212")
-    args = parser.parse_args()
-    phone_number = args.call
+    # parser = argparse.ArgumentParser(description="Run the Twilio AI voice assistant server.")
+    # parser.add_argument('--call', required=True, help="The phone number to call, e.g. --call=+18005551212")
+    # args = parser.parse_args()
+    phone_number = PHONE_NUMBER_TO
     print(
         "Our recommendation is to always disclose the use of AI for outbound or inbound calls.\n"
         "Reminder: All applicable regulations (e.g. TCPA in the U.S.) apply."
