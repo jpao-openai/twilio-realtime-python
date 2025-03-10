@@ -14,7 +14,7 @@ import re
 import logging
 
 logging.basicConfig(level=logging.DEBUG)
-load_dotenv()
+load_dotenv(override=True)
 
 # Configuration
 TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID')
@@ -62,10 +62,11 @@ async def handle_media_stream(websocket: WebSocket):
     websocket_server_url = f"wss://{DOMAIN}"
 
     async with websockets.connect(
-        websocket_server_url,
-        # extra_headers={
-        #     "Authorization": f"Bearer {AUTH_TOKEN}"
-        # }
+        'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17',
+        additional_headers={
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "OpenAI-Beta": "realtime=v1"
+        }
     ) as relay_ws:
         print("Connected to hosted WebSocket server")
         await initialize_session(relay_ws)  # Ensure session initialization
