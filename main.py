@@ -191,12 +191,8 @@ async def make_call(phone_number_to_call: str):
     # Do your own diligence for compliance.
 
     outbound_twiml = (
-        f'<?xml version="1.0" encoding="UTF-8"?>'
-        f'<Response>'
-        f'  <Connect>'
-        f'    <Stream url="wss://{DOMAIN}/media-stream" />'
-        f'  </Connect>'
-        f'</Response>'
+         f'<?xml version="1.0" encoding="UTF-8"?>'
+         f'<Response><Connect><Stream url="wss://{DOMAIN}/media-stream" /></Connect></Response>'
     )
 
     try:
